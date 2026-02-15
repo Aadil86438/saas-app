@@ -1,96 +1,53 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 )
 
-func main() {
-	InitDB()
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Backend is running! 🚀"))
-	})
-
-	http.HandleFunc("/api/auth/signup", CORSHandler(SignupAPI))
-	http.HandleFunc("/api/auth/login", CORSHandler(LoginAPI))
-	http.HandleFunc("/api/auth/logout", CORSHandler(LogoutAPI))
-	http.HandleFunc("/api/auth/verify", CORSHandler(VerifyTokenAPI))
-
-	http.HandleFunc("/api/todos", CORSHandler(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			ListTodosAPI(w, r)
-		} else if r.Method == http.MethodPost {
-			CreateTodoAPI(w, r)
-		}
-	}))
-
-	http.HandleFunc("/api/todos/", CORSHandler(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
-			UpdateTodoAPI(w, r)
-		} else if r.Method == http.MethodDelete {
-			DeleteTodoAPI(w, r)
-		}
-	}))
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	log.Println("Server starting on :" + port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
-}
-
-func CORSHandler(pHandler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// enableCORS is a security gate that allows your Vercel frontend to talk to Railway.
+// It doesn't change your logic, just adds permission headers.
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-		if r.Method == http.MethodOptions {
+		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-
-		pHandler(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
-func ReadBody(r *http.Request) string {
-	lBody, lErr := ioutil.ReadAll(r.Body)
-	if lErr != nil {
-		return ""
+func main() {
+	// 1. Initialize the Database
+	InitDB()
+
+	// 2. Setup your Routes (Cursor logic)
+	http.HandleFunc("/api/auth/signup", SignupHandler)
+	http.HandleFunc("/api/auth/login", LoginHandler)
+	http.HandleFunc("/api/auth/logout", LogoutHandler)
+	http.HandleFunc("/api/auth/verify", VerifyHandler)
+	http.HandleFunc("/api/todos", TodoHandler)
+    // Add a health check so Railway knows the app is alive
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Backend is running!"))
+	})
+
+	// 3. Get the Port from Railway
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Fallback for local testing
 	}
-	return string(lBody)
-}
 
-func SendJSONResponse(w http.ResponseWriter, pResponse APIResponse, pStatus int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	w.WriteHeader(pStatus)
+	log.Printf("Server starting on :%s", port)
 
-	lJSON, lErr := json.Marshal(pResponse)
-	if lErr != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	// 4. Start Server with CORS enabled
+	err := http.ListenAndServe(":"+port, enableCORS(http.DefaultServeMux))
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	w.Write(lJSON)
 }
-
-func SendErrorResponse(w http.ResponseWriter, pMessage string, pStatus int) {
-	lResponse := APIResponse{
-		Status:  "e",
-		Message: pMessage,
-		Data:    nil,
-	}
-	SendJSONResponse(w, lResponse, pStatus)
-}
-
