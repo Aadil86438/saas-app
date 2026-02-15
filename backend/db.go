@@ -18,7 +18,12 @@ func InitDB() {
 		lDBPassword = "2466"
 	}
 	
-	lConnectionString := "host=postgres-saas port=5432 user=postgres password=" + lDBPassword + " dbname=todos_db sslmode=disable"
+	lConnectionString := os.Getenv("DATABASE_URL")
+
+if lConnectionString == "" {
+    lConnectionString = "host=localhost port=5432 user=postgres password=" + lDBPassword + " dbname=todos_db sslmode=disable"
+}
+
 	
 	lDBInstance, lErr := sql.Open("postgres", lConnectionString)
 	if lErr != nil {
